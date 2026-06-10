@@ -6,53 +6,60 @@
 <title>Claude Code · Telegram Bridge</title>
 <style>
   :root {
-    --bg: #f5f6f8; --card: #ffffff; --ink: #1c1e26; --muted: #7a8093;
-    --accent: #5b5fc7; --ok: #1f9d61; --warn: #e8a13c; --err: #d4524e;
-    --line: #e8eaf0; --chip: #f0f1f7;
+    --bg:#f4f5f8; --card:#ffffff; --ink:#1b1d26; --muted:#7b8194; --faint:#aab0c0;
+    --accent:#5b5fc7; --accent2:#7c5cff; --ok:#1f9d61; --warn:#e0901f; --err:#d4524e;
+    --line:#eaecf2; --chip:#f1f2f8; --bar:#edeef5;
   }
-  * { box-sizing: border-box; margin: 0; }
-  body {
-    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg); color: var(--ink); padding: 28px 20px 60px;
-  }
-  .wrap { max-width: 1060px; margin: 0 auto; }
-  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 26px; }
-  .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--ok); flex: none; }
-  .dot.busy { background: var(--warn); animation: pulse 1.2s infinite; }
-  @keyframes pulse { 50% { opacity: .35; } }
-  h1 { font-size: 21px; font-weight: 650; letter-spacing: -.2px; }
-  .chip {
-    background: var(--chip); color: var(--muted); border-radius: 999px;
-    padding: 3px 12px; font-size: 12.5px; font-weight: 500;
-  }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 26px; }
-  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
-  .stat .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
-  .stat .v { font-size: 26px; font-weight: 660; margin-top: 4px; letter-spacing: -.5px; }
-  .stat .v small { font-size: 14px; color: var(--muted); font-weight: 500; }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; margin-bottom: 18px; }
-  h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 14px; font-weight: 650; }
-  .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
-  .row:first-of-type { border-top: 0; }
-  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; background: var(--chip); border-radius: 7px; padding: 2px 8px; color: var(--accent); cursor: pointer; }
-  .mono:hover { background: #e4e6f5; }
-  .snippet { color: var(--ink); flex: 1 1 240px; min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta { color: var(--muted); font-size: 12.5px; flex: none; }
-  .badge { font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 999px; padding: 2px 9px; }
-  .okc { color: var(--ok); } .errc { color: var(--err); }
-  pre {
-    font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; background: #fafbfc;
-    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
-    overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: #3a3f4e;
-  }
-  .empty { color: var(--muted); font-size: 13.5px; padding: 6px 0; }
-  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 26px; }
-  .toast {
-    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-    background: var(--ink); color: #fff; border-radius: 10px; padding: 8px 16px;
-    font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none;
-  }
-  .toast.show { opacity: .92; }
+  * { box-sizing:border-box; margin:0; }
+  body { font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:var(--bg); color:var(--ink); padding:26px 18px 64px; }
+  .wrap { max-width:1120px; margin:0 auto; }
+  header { display:flex; align-items:center; gap:13px; flex-wrap:wrap; margin-bottom:22px; }
+  .dot { width:13px; height:13px; border-radius:50%; background:var(--ok); flex:none;
+         box-shadow:0 0 0 4px rgba(31,157,97,.14); }
+  .dot.busy { background:var(--warn); box-shadow:0 0 0 4px rgba(224,144,31,.16); animation:pulse 1.2s infinite; }
+  .dot.off { background:var(--err); box-shadow:0 0 0 4px rgba(212,82,78,.16); }
+  @keyframes pulse { 50%{opacity:.4;} }
+  h1 { font-size:20px; font-weight:650; letter-spacing:-.2px; }
+  .chip { background:var(--chip); color:var(--muted); border-radius:999px; padding:3px 12px;
+          font-size:12.5px; font-weight:500; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:12px; margin-bottom:16px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:15px; padding:14px 16px; }
+  .stat .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; font-weight:650; }
+  .stat .v { font-size:25px; font-weight:670; margin-top:3px; letter-spacing:-.5px; }
+  .stat .v small { font-size:13px; color:var(--muted); font-weight:500; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:760px){ .cols{ grid-template-columns:1fr; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:15px; padding:18px 20px; margin-bottom:16px; }
+  h2 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.7px; margin-bottom:13px; font-weight:680;
+       display:flex; align-items:center; gap:8px; }
+  h2 .tag { text-transform:none; letter-spacing:0; font-weight:500; color:var(--faint); font-size:12px; }
+  .row { display:flex; align-items:center; gap:11px; padding:8px 0; border-top:1px solid var(--line); flex-wrap:wrap; }
+  .row:first-of-type { border-top:0; }
+  .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:12.5px; background:var(--chip);
+          border-radius:7px; padding:2px 8px; color:var(--accent); cursor:pointer; }
+  .mono:hover { background:#e4e6f5; }
+  .snippet { color:var(--ink); flex:1 1 220px; min-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .meta { color:var(--muted); font-size:12.5px; flex:none; }
+  .badge { font-size:11px; font-weight:700; color:#fff; background:var(--accent); border-radius:999px; padding:2px 9px; }
+  .okc{color:var(--ok);} .errc{color:var(--err);}
+  .treasury { background:linear-gradient(135deg,#f7f4ff,#eef0ff); border-color:#e4e2fb; }
+  .tgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; }
+  .tcell .tk { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:650; }
+  .tcell .tv { font-size:20px; font-weight:680; margin-top:2px; letter-spacing:-.4px; }
+  .pill { display:inline-block; font-size:11px; font-weight:700; padding:2px 10px; border-radius:999px; }
+  .pill.live { background:rgba(31,157,97,.14); color:var(--ok); }
+  .pill.armed { background:rgba(224,144,31,.16); color:var(--warn); }
+  .bar { height:7px; background:var(--bar); border-radius:5px; overflow:hidden; margin-top:6px; }
+  .bar > span { display:block; height:100%; border-radius:5px; background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+  pre { font:12px/1.6 ui-monospace,"SF Mono",Menlo,monospace; background:#fafbfc; border:1px solid var(--line);
+        border-radius:11px; padding:13px 15px; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#3a3f4e; }
+  .empty { color:var(--muted); font-size:13.5px; padding:6px 0; }
+  footer { text-align:center; color:var(--faint); font-size:12px; margin-top:24px; }
+  footer a { color:var(--muted); }
+  .toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff;
+           border-radius:10px; padding:8px 16px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; }
+  .toast.show { opacity:.93; }
 </style>
 </head>
 <body>
@@ -72,15 +79,28 @@
     <div class="stat"><div class="k">Uploads</div><div class="v" id="nUploads">—</div></div>
   </div>
 
-  <section>
-    <h2>Conversations <span style="text-transform:none;font-weight:500">(tap an id to copy /attach)</span></h2>
-    <div id="sessions"><div class="empty">loading…</div></div>
+  <section class="treasury" id="treasuryCard" style="display:none">
+    <h2>💰 Treasury <span class="tag" id="tokenState"></span></h2>
+    <div class="tgrid">
+      <div class="tcell"><div class="tk">SOL balance</div><div class="tv" id="solBal">—</div></div>
+      <div class="tcell"><div class="tk">Token</div><div class="tv" id="tokSym">—</div></div>
+      <div class="tcell"><div class="tk">Mint</div><div class="tv" id="tokMint" style="font-size:13px">—</div></div>
+      <div class="tcell"><div class="tk">Wallet</div><div class="tv" id="tWallet" style="font-size:13px">—</div></div>
+    </div>
   </section>
 
-  <section>
-    <h2>Recent runs</h2>
-    <div id="runs"><div class="empty">loading…</div></div>
-  </section>
+  <div class="cols">
+    <section>
+      <h2>Conversations <span class="tag">tap an id to copy /attach</span></h2>
+      <div id="sessions"><div class="empty">loading…</div></div>
+    </section>
+    <section>
+      <h2>System</h2>
+      <div id="system"><div class="empty">loading…</div></div>
+      <h2 style="margin-top:18px">Recent runs</h2>
+      <div id="runs"><div class="empty">loading…</div></div>
+    </section>
+  </div>
 
   <section>
     <h2>Recent uploads</h2>
@@ -92,90 +112,99 @@
     <pre id="log">loading…</pre>
   </section>
 
-  <footer>auto-refreshes every 5s · <a href="https://github.com/naoufac/claude-code-telegram-bridge" style="color:var(--muted)">claude-code-telegram-bridge</a></footer>
+  <footer>auto-refreshes every 5s · <a href="https://github.com/naoufac/claude-code-telegram-bridge">claude-code-telegram-bridge</a></footer>
 </div>
 <div class="toast" id="toast">copied</div>
 
 <script>
 const KEY = new URLSearchParams(location.search).get("key") || "";
 const $ = id => document.getElementById(id);
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls)e.className=cls; if(text!==undefined)e.textContent=text; return e; }
+function fmtUp(s){ if(s<3600)return Math.floor(s/60)+"m up"; if(s<86400)return (s/3600).toFixed(1)+"h up"; return (s/86400).toFixed(1)+"d up"; }
+function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1200); }
+function copyChip(e, full, label){ e.onclick=()=>navigator.clipboard.writeText(full).then(()=>toast(label)); }
+function bar(pct){ const w=el("div","bar"); const s=el("span"); s.style.width=Math.min(100,pct||0)+"%"; w.append(s); return w; }
 
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;  // textContent only: no HTML injection
-  return e;
+function vitalRow(label, pct, sub){
+  const row=el("div","row");
+  const left=el("div"); left.style.flex="1 1 auto";
+  left.append(el("span","snippet",label));
+  if(pct!==null && pct!==undefined) left.append(bar(pct));
+  row.append(left, el("span","meta", sub));
+  return row;
 }
 
-function fmtUp(s) {
-  if (s < 3600) return Math.floor(s / 60) + "m up";
-  if (s < 86400) return (s / 3600).toFixed(1) + "h up";
-  return (s / 86400).toFixed(1) + "d up";
-}
+function render(d){
+  $("dot").className="dot"+(d.busy?" busy":"");
+  $("label").textContent=d.label; $("uptime").textContent=fmtUp(d.uptime_s);
+  $("status").textContent=d.busy?"working":"idle"; $("status").style.color=d.busy?"var(--warn)":"var(--ok)";
+  $("queue").textContent=d.queue; $("runsToday").textContent=d.runs_today;
+  $("nSessions").textContent=d.sessions.length; $("nUploads").textContent=d.uploads.length;
 
-function toast(msg) {
-  const t = $("toast"); t.textContent = msg; t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 1200);
-}
+  // treasury
+  if(d.treasury){
+    $("treasuryCard").style.display="";
+    const t=d.treasury;
+    $("solBal").textContent = (t.sol===null?"…":t.sol)+" SOL";
+    $("tokSym").textContent = "$"+(t.symbol||"NAO");
+    const ts=$("tokenState"); ts.textContent="";
+    const pill=el("span","pill "+(t.launched?"live":"armed"), t.launched?"LIVE":"ready to launch"); ts.append(pill);
+    const mint=$("tokMint"); mint.textContent="";
+    if(t.mint){ const m=el("span","mono",t.mint.slice(0,10)+"…"); m.title=t.mint; copyChip(m,t.mint,"mint copied"); mint.append(m); }
+    else mint.textContent="— not minted —";
+    const w=$("tWallet"); w.textContent="";
+    if(t.wallet){ const c=el("span","mono",t.wallet.slice(0,8)+"…"); c.title=t.wallet; copyChip(c,t.wallet,"wallet copied"); w.append(c); }
+  }
 
-function render(d) {
-  $("dot").className = "dot" + (d.busy ? " busy" : "");
-  $("label").textContent = d.label;
-  $("uptime").textContent = fmtUp(d.uptime_s);
-  $("status").textContent = d.busy ? "working" : "idle";
-  $("status").style.color = d.busy ? "var(--warn)" : "var(--ok)";
-  $("queue").textContent = d.queue;
-  $("runsToday").textContent = d.runs_today;
-  $("nSessions").textContent = d.sessions.length;
-  $("nUploads").textContent = d.uploads.length;
+  // system
+  const S=$("system"); S.replaceChildren();
+  if(d.system){
+    const v=d.system;
+    if(v.load!==null) S.append(vitalRow("CPU load", v.cpus?100*v.load/v.cpus:null, v.load+" / "+(v.cpus||"?")+" cores"));
+    if(v.mem_pct!==null) S.append(vitalRow("Memory", v.mem_pct, v.mem_pct+"% of "+(v.mem_total_gb||"?")+" GB"));
+    if(v.disk_pct!==null) S.append(vitalRow("Disk", v.disk_pct, v.disk_pct+"% of "+(v.disk_total_gb||"?")+" GB"));
+  }
 
-  const S = $("sessions"); S.replaceChildren();
-  if (!d.sessions.length) S.append(el("div", "empty", "no sessions yet"));
-  d.sessions.forEach(s => {
-    const row = el("div", "row");
-    const id = el("span", "mono", s.id.slice(0, 8));
-    id.title = s.id;
-    id.onclick = () => navigator.clipboard.writeText("/attach " + s.id.slice(0, 8)).then(() => toast("copied /attach " + s.id.slice(0, 8)));
-    row.append(id, el("span", "snippet", s.snippet), el("span", "meta", s.age + " · " + s.kb + " KB"));
-    if (s.current) row.append(el("span", "badge", "attached"));
-    S.append(row);
+  const SE=$("sessions"); SE.replaceChildren();
+  if(!d.sessions.length) SE.append(el("div","empty","no sessions yet"));
+  d.sessions.forEach(s=>{
+    const row=el("div","row");
+    const id=el("span","mono",s.id.slice(0,8)); id.title=s.id;
+    copyChip(id,"/attach "+s.id.slice(0,8),"copied /attach "+s.id.slice(0,8));
+    row.append(id, el("span","snippet",s.snippet), el("span","meta",s.age+" · "+s.kb+" KB"));
+    if(s.current) row.append(el("span","badge","attached"));
+    SE.append(row);
   });
 
-  const R = $("runs"); R.replaceChildren();
-  if (!d.runs.length) R.append(el("div", "empty", "no runs in the recent log"));
-  d.runs.forEach(r => {
-    const row = el("div", "row");
-    row.append(
-      el("span", "meta", r.ts.replace("T", " ").replace("Z", " UTC")),
-      el("span", "snippet", r.mins.toFixed(1) + " min"),
-      el("span", r.ok ? "meta okc" : "meta errc", r.ok ? "✓ ok" : "✗ error")
-    );
+  const R=$("runs"); R.replaceChildren();
+  if(!d.runs.length) R.append(el("div","empty","no runs in recent log"));
+  d.runs.forEach(r=>{
+    const row=el("div","row");
+    row.append(el("span","meta",r.ts.replace("T"," ").replace("Z","")),
+               el("span","snippet",r.mins.toFixed(1)+" min"),
+               el("span",r.ok?"meta okc":"meta errc",r.ok?"✓":"✗"));
     R.append(row);
   });
 
-  const U = $("uploads"); U.replaceChildren();
-  if (!d.uploads.length) U.append(el("div", "empty", "none yet"));
-  d.uploads.forEach(u => {
-    const row = el("div", "row");
-    row.append(el("span", "snippet", u.name), el("span", "meta", u.kb + " KB · " + u.ts + " UTC"));
+  const U=$("uploads"); U.replaceChildren();
+  if(!d.uploads.length) U.append(el("div","empty","none yet"));
+  d.uploads.forEach(u=>{
+    const row=el("div","row");
+    row.append(el("span","snippet",u.name), el("span","meta",u.kb+" KB · "+u.ts));
     U.append(row);
   });
 
-  $("log").textContent = d.log || "(empty)";
+  $("log").textContent=d.log||"(empty)";
 }
 
-async function tick() {
-  try {
-    const r = await fetch("/api/state?key=" + encodeURIComponent(KEY), { cache: "no-store" });
-    if (!r.ok) { $("status").textContent = "auth?"; return; }
+async function tick(){
+  try{
+    const r=await fetch("/api/state?key="+encodeURIComponent(KEY),{cache:"no-store"});
+    if(!r.ok){ $("dot").className="dot off"; $("status").textContent="auth?"; return; }
     render(await r.json());
-  } catch (e) {
-    $("status").textContent = "offline";
-    $("status").style.color = "var(--err)";
-  }
+  }catch(e){ $("dot").className="dot off"; $("status").textContent="offline"; $("status").style.color="var(--err)"; }
 }
-tick();
-setInterval(tick, 5000);
+tick(); setInterval(tick,5000);
 </script>
 </body>
 </html>

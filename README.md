@@ -13,7 +13,7 @@ Send a message from your phone; a real headless Claude Code turn runs on your se
 - **Uploads in** — documents, photos, albums, video land in `UPLOAD_DIR` and their paths are injected into the turn (Claude Code reads images natively). Albums are batched into a single prompt, even when items download at different speeds.
 - **Voice in** — voice notes are transcribed (ElevenLabs `scribe_v1`, falling back to Gemini) and the transcript becomes the prompt, with the audio path included. Speak your commands.
 - **Files out** — `/file /path` sends any file from the server to your chat. Claude itself also gets `TG_TOKEN`/`TG_CHAT_ID` in its environment plus instructions, so it can push artifacts to you mid-task.
-- **Web dashboard** — optional light-theme status page (above): live status, queue, conversations with attach-ids, recent runs, uploads, log tail. Single static HTML file served by the bridge itself, token-gated.
+- **Web dashboard** — optional light-theme status page (above): live status, queue, conversations with attach-ids, recent runs, uploads, system vitals (CPU/memory/disk), and an optional Solana treasury panel. Single static HTML file served by the bridge itself, token-gated.
 - **Self-healing** — broken/pruned `--resume` targets are detected (file check + error-result heuristic) and the prompt is replayed once on a fresh session instead of failing forever.
 - **Ops built in** — `/stop` kills a runaway turn, `/status` and `/log` inspect the bridge, `/reboot` restarts it (offset-safe: no redelivery loop), systemd `Restart=always` keeps it up.
 

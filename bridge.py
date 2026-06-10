@@ -18,6 +18,7 @@ import hmac
 import json
 import os
 import queue
+import shutil
 import signal
 import subprocess
 import sys
@@ -729,6 +730,78 @@ def handle_message(msg):
         queue_prompt(chat_id, text)
 
 
+_treasury_cache = {"ts": 0, "data": None}
+# Optional Solana treasury panel — set TREASURY_WALLET to enable. Fully generic.
+TREASURY_WALLET = os.environ.get("TREASURY_WALLET", "")
+TREASURY_SYMBOL = os.environ.get("TREASURY_SYMBOL", "TOKEN")
+TREASURY_MINT_FILE = os.environ.get("TREASURY_MINT_FILE", "")
+SOLANA_RPC = os.environ.get("SOLANA_RPC", "https://api.mainnet-beta.solana.com")
+
+
+def get_treasury():
+    """Solana wallet/token status for the dashboard (cached 60s).
+
+    Returns None unless TREASURY_WALLET is set, so the panel is opt-in and the
+    bridge stays generic.
+    """
+    if not TREASURY_WALLET:
+        return None
+    if time.time() - _treasury_cache["ts"] < 60 and _treasury_cache["data"]:
+        return _treasury_cache["data"]
+    data = {"wallet": TREASURY_WALLET, "sol": None, "mint": None,
+            "symbol": TREASURY_SYMBOL, "launched": False}
+    if TREASURY_MINT_FILE:
+        try:
+            with open(TREASURY_MINT_FILE) as f:
+                m = f.read().strip().split()[-1]
+                if m:
+                    data["mint"], data["launched"] = m, True
+        except (OSError, IndexError):
+            pass
+    if data["wallet"]:
+        try:
+            req = urllib.request.Request(
+                SOLANA_RPC,
+                data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "getBalance",
+                                 "params": [data["wallet"]]}).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                lam = (json.load(r).get("result") or {}).get("value", 0)
+                data["sol"] = round(lam / 1e9, 4)
+        except Exception:
+            pass
+    _treasury_cache["ts"], _treasury_cache["data"] = time.time(), data
+    return data
+
+
+def system_vitals():
+    v = {"load": None, "mem_pct": None, "disk_pct": None, "cpus": os.cpu_count()}
+    try:
+        with open("/proc/loadavg") as f:
+            v["load"] = float(f.read().split()[0])
+    except (OSError, ValueError):
+        pass
+    try:
+        mem = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    mem[parts[0].rstrip(":")] = int(parts[1])
+        total, avail = mem.get("MemTotal", 1), mem.get("MemAvailable", 0)
+        v["mem_pct"] = round(100 * (total - avail) / total, 1)
+        v["mem_total_gb"] = round(total / 1048576, 1)
+    except (OSError, ValueError, ZeroDivisionError):
+        pass
+    try:
+        du = shutil.disk_usage("/")
+        v["disk_pct"] = round(100 * du.used / du.total, 1)
+        v["disk_total_gb"] = round(du.total / 1e9)
+    except OSError:
+        pass
+    return v
+
+
 def dash_state():
     """Read-only snapshot for the web dashboard."""
     with proc_lock:
@@ -773,6 +846,8 @@ def dash_state():
         "sessions": [{"id": s, "age": a, "kb": kb, "snippet": sn, "current": s == cur}
                      for s, a, kb, sn in list_sessions(10)],
         "uploads": uploads,
+        "treasury": get_treasury(),
+        "system": system_vitals(),
         "log": "\n".join(loglines[-30:]).replace(TOKEN, "‹bot-token›"),
     }
 
