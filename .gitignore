@@ -1,0 +1,5 @@
+.env
+state.json
+bridge.log
+poller.lock
+__pycache__/

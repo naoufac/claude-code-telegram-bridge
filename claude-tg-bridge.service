@@ -1,0 +1,17 @@
+[Unit]
+Description=Telegram to headless Claude Code bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/claude-tg-bridge/.env
+ExecStart=/usr/bin/python3 /opt/claude-tg-bridge/bridge.py
+WorkingDirectory=/opt/claude-tg-bridge
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/claude-tg-bridge/bridge.log
+StandardError=append:/opt/claude-tg-bridge/bridge.log
+
+[Install]
+WantedBy=multi-user.target
