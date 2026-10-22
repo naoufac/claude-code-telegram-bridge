@@ -42,6 +42,11 @@ BRIDGE_LABEL = os.environ.get("BRIDGE_LABEL", "this machine")
 STATE_PATH = os.path.join(BASE, "state.json")
 LOCK_PATH = os.path.join(BASE, "poller.lock")
 LOG_PATH = os.path.join(BASE, "bridge.log")
+HOOK = "%s %s" % (sys.executable, os.path.join(BASE, "inbox_hook.py"))
+HOOK_SETTINGS = json.dumps({"hooks": {
+    "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": HOOK + " PostToolUse"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": HOOK + " Stop"}]}],
+}})
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(HOME_DIR, "tg-uploads"))
 PROJECTS_DIR = os.path.join(HOME_DIR, ".claude", "projects")
 ELEVENLABS_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
@@ -101,6 +106,26 @@ def save_state(st):
 
 
 STATE = load_state()
+
+sys.path.insert(0, BASE)
+from native_commands import HELP, MENU  # noqa: E402
+
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+MODEL = STATE.get("primary_model", "")
+EFFORT = STATE.get("effort", "")
+if EFFORT not in EFFORT_LEVELS:
+    EFFORT = ""
+if "turn_timeout" in STATE:
+    RUN_TIMEOUT = int(STATE["turn_timeout"])
+CLAUDE_MODELS = ("opus", "sonnet", "haiku", "fable")
+GLM_BIN = os.environ.get("GLM_BIN", "glm")
+GLM_TIMEOUT = int(os.environ.get("ZAI_TIMEOUT", "900"))
+KNOWN_MODELS = ("claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-4-5-20251001")
+
+
+def _ago(ts):
+    d = time.time() - ts
+    return "%dm ago" % (d // 60) if d < 86400 else "%.1fd ago" % (d / 86400)
 
 
 def tg(method, payload, timeout=70):
@@ -350,6 +375,23 @@ def resolve_session(prefix):
     return (hits[0], hits) if len(hits) == 1 else (None, hits)
 
 
+def inbox_path(chat_id):
+    return os.path.join(BASE, "inbox-%s.txt" % chat_id)
+
+
+def take_inbox(chat_id):
+    path = inbox_path(chat_id)
+    taken = path + ".bridge"
+    try:
+        os.rename(path, taken)
+    except OSError:
+        return ""
+    with open(taken) as f:
+        text = f.read().strip()
+    os.unlink(taken)
+    return text
+
+
 def run_claude(chat_id, prompt, retried=False):
     """Run one claude turn, streaming text blocks back to the chat."""
     global current_proc
@@ -363,10 +405,20 @@ def run_claude(chat_id, prompt, retried=False):
         "--output-format", "stream-json", "--verbose",
         "--dangerously-skip-permissions",
         "--append-system-prompt", SYSTEM_APPEND,
+        "--settings", HOOK_SETTINGS,
     ]
+    if MODEL:
+        cmd += ["--model", MODEL]
+    if EFFORT:
+        cmd += ["--effort", EFFORT]
     if sid:
         cmd += ["--resume", sid]
-    run_env = dict(CLAUDE_ENV, TG_TOKEN=TOKEN, TG_CHAT_ID=str(chat_id))
+    run_env = dict(CLAUDE_ENV, TG_TOKEN=TOKEN, TG_CHAT_ID=str(chat_id),
+                   BRIDGE_INBOX=inbox_path(chat_id))
+    if not retried:
+        with state_lock:
+            STATE.setdefault("last_prompt", {})[str(chat_id)] = prompt
+            save_state(STATE)
 
     stop_evt = threading.Event()
     threading.Thread(target=typing_loop, args=(chat_id, stop_evt), daemon=True).start()
@@ -382,7 +434,7 @@ def run_claude(chat_id, prompt, retried=False):
 
     def reaper(p):
         while p.poll() is None:
-            if time.time() - started > RUN_TIMEOUT:
+            if RUN_TIMEOUT > 0 and time.time() - started > RUN_TIMEOUT:
                 killed[0] = True
                 try:
                     os.killpg(p.pid, signal.SIGKILL)
@@ -430,6 +482,12 @@ def run_claude(chat_id, prompt, retried=False):
             elif etype == "result":
                 result_seen = True
                 new_sid = ev.get("session_id") or new_sid
+                cost_usd = ev.get("total_cost_usd")
+                if isinstance(cost_usd, (int, float)) and cost_usd >= 0:
+                    with state_lock:
+                        STATE["last_cost"] = {"usd": cost_usd, "ts": time.time(), "model": MODEL or "account default", "effort": EFFORT or "account default"}
+                        STATE["cost_total"] = round(STATE.get("cost_total", 0.0) + cost_usd, 6)
+                        save_state(STATE)
                 text = ev.get("result") or ""
                 if ev.get("is_error"):
                     if sid and last_sent is None and not retried:
@@ -477,12 +535,41 @@ def run_claude(chat_id, prompt, retried=False):
             send_text(chat_id, "⚠️ run ended with no output (stopped?).")
 
 
-def queue_prompt(chat_id, prompt):
+def run_glm(chat_id, prompt):
+    """Run one task on a separate GLM worker command (GLM_BIN reads a prompt on stdin) and relay the answer."""
+    global current_proc
+    proc = None
+    try:
+        proc = subprocess.Popen([GLM_BIN, "-"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, start_new_session=True)
+        with proc_lock:
+            current_proc = proc
+        try:
+            out, err = proc.communicate(prompt, timeout=GLM_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            send_text(chat_id, "GLM worker timed out after %d minutes." % (GLM_TIMEOUT // 60))
+            return
+    except OSError as e:
+        send_text(chat_id, "GLM worker could not start: %r" % e)
+        return
+    finally:
+        with proc_lock:
+            current_proc = None
+    if proc.returncode == 0 and out.strip():
+        send_text(chat_id, "GLM worker:\n" + out.strip())
+    else:
+        send_text(chat_id, "GLM worker failed (code %s): %s" % (proc.returncode, (err or out).strip()[-600:]))
+
+
+def queue_prompt(chat_id, prompt, provider="claude"):
     with proc_lock:
         busy = current_proc is not None and current_proc.poll() is None
     if busy or work_q.qsize():
-        send_text(chat_id, "⏳ Busy — queued behind %d." % (work_q.qsize() + (1 if busy else 0)))
-    work_q.put((chat_id, prompt))
+        send_text(chat_id, "⏳ Busy — queued behind %d. Use /go <message> to send it into the running turn instead."
+                  % (work_q.qsize() + (1 if busy else 0)))
+    work_q.put((chat_id, prompt, provider))
 
 
 def extract_media(msg):
@@ -595,9 +682,16 @@ def group_flusher():
 
 def worker():
     while True:
-        chat_id, prompt = work_q.get()
+        chat_id, prompt, provider = work_q.get()
         try:
+            if provider == "zai":
+                run_glm(chat_id, prompt)
+                continue
             run_claude(chat_id, prompt)
+            late = take_inbox(chat_id)
+            if late:
+                send_text(chat_id, "📨 Your /go message arrived as the turn ended. Running it now.")
+                work_q.put((chat_id, late, "claude"))
         except Exception as e:
             log("worker error: %r" % e)
             send_text(chat_id, "⚠️ bridge error: %r" % e)
@@ -606,6 +700,7 @@ def worker():
 
 
 def handle_message(msg):
+    global MODEL, EFFORT, RUN_TIMEOUT
     chat_id = msg["chat"]["id"]
     from_id = (msg.get("from") or {}).get("id")
     if from_id != OWNER:
@@ -630,20 +725,110 @@ def handle_message(msg):
 
     if cmd in ("/start", "/help"):
         send_text(chat_id,
-                  "🟢 Claude Code bridge live on %s.\n" % BRIDGE_LABEL +
-                  "Talk normally — every message runs a full Claude Code turn "
-                  "(tools, memory, skills) in %s, same as the terminal. " % WORKDIR +
-                  "Send files, photos or voice notes — they're saved on the VPS "
-                  "and handed to Claude (voice is transcribed).\n\n"
-                  "/new — fresh conversation\n"
-                  "/sessions — list recent Claude Code sessions\n"
-                  "/attach <id> — continue any of them here\n"
-                  "/last — attach the most recent session\n"
-                  "/file <path> — fetch a file from the VPS\n"
-                  "/stop — kill the running turn\n"
-                  "/status — bridge state · /log — bridge log\n"
-                  "/reboot — restart the bridge\n"
-                  "Other /commands pass through to Claude (skills work).")
+                  "🟢 Claude Code bridge on %s. Talk normally: every message is a full Claude Code turn "
+                  "in %s. Files, photos and voice notes work. Other /commands (skills, /goal) go to Claude.\n\n"
+                  % (BRIDGE_LABEL, WORKDIR) + HELP)
+    elif cmd == "/ping":
+        send_text(chat_id, "Pong, bridge responsive.")
+    elif cmd == "/workspace":
+        send_text(chat_id, WORKDIR)
+    elif cmd == "/models":
+        send_text(chat_id, "Current: %s\nAliases: %s\nFull names: %s\nGLM worker: /zai <prompt>"
+                  % (MODEL or "account default", ", ".join(CLAUDE_MODELS), ", ".join(KNOWN_MODELS)))
+    elif cmd == "/model":
+        if not arg:
+            send_text(chat_id, "Model: %s. Set with /model <name>, back to account default with /model default." % (MODEL or "account default"))
+        elif work_q.unfinished_tasks:
+            send_text(chat_id, "Wait until the current and queued work finishes before switching.")
+        else:
+            new = "" if arg.lower() in ("default", "account", "reset") else arg.strip()
+            if new and new.lower().startswith("glm"):
+                send_text(chat_id, "%s is the GLM worker: use /zai <prompt>." % new)
+            elif new and new not in CLAUDE_MODELS and not ("-" in new and any(c.isdigit() for c in new)):
+                send_text(chat_id, "Unknown model %r. See /models." % new[:40])
+            else:
+                with state_lock:
+                    STATE["primary_model"] = new
+                    save_state(STATE)
+                MODEL = new
+                send_text(chat_id, "Model: %s (applies from the next turn)." % (MODEL or "account default"))
+    elif cmd == "/effort":
+        if not arg:
+            send_text(chat_id, "Effort: %s (low, medium, high, xhigh, max, default)." % (EFFORT or "account default"))
+        elif arg.lower() not in EFFORT_LEVELS + ("default",):
+            send_text(chat_id, "Choose one of: " + ", ".join(EFFORT_LEVELS + ("default",)))
+        elif work_q.unfinished_tasks:
+            send_text(chat_id, "Wait until the current and queued work finishes before changing effort.")
+        else:
+            EFFORT = "" if arg.lower() == "default" else arg.lower()
+            with state_lock:
+                STATE["effort"] = EFFORT
+                save_state(STATE)
+            send_text(chat_id, "Effort: %s (applies from the next turn)." % (EFFORT or "account default"))
+    elif cmd == "/timeout":
+        if not arg:
+            send_text(chat_id, "Turn limit: %s." % ("none" if RUN_TIMEOUT <= 0 else "%d minutes" % (RUN_TIMEOUT // 60)))
+        elif not arg.isdigit() or int(arg) > 1440:
+            send_text(chat_id, "Give minutes from 0 to 1440 (0 = no limit).")
+        else:
+            RUN_TIMEOUT = int(arg) * 60
+            with state_lock:
+                STATE["turn_timeout"] = RUN_TIMEOUT
+                save_state(STATE)
+            send_text(chat_id, "Turn limit: %s." % ("none" if RUN_TIMEOUT <= 0 else "%d minutes" % int(arg)))
+    elif cmd == "/retry":
+        last = STATE.get("last_prompt", {}).get(str(chat_id))
+        if not last:
+            send_text(chat_id, "No previous prompt to retry.")
+        else:
+            send_text(chat_id, "Retrying: %s" % last[:120])
+            queue_prompt(chat_id, last)
+    elif cmd == "/resume":
+        if not get_session(chat_id):
+            send_text(chat_id, "No current session. Send a task or /attach first.")
+        else:
+            queue_prompt(chat_id, arg or "Continue the current task from where you stopped.")
+    elif cmd == "/queue":
+        send_text(chat_id, "Waiting tasks: %d" % work_q.qsize())
+    elif cmd == "/clear":
+        count = 0
+        while True:
+            try:
+                work_q.get_nowait()
+                work_q.task_done()
+                count += 1
+            except queue.Empty:
+                break
+        send_text(chat_id, "Discarded %d waiting tasks; the current turn keeps running." % count)
+    elif cmd == "/zai":
+        if not arg:
+            send_text(chat_id, "Usage: /zai <prompt>. The GLM worker has no tools and cannot see this chat.")
+        else:
+            queue_prompt(chat_id, arg, provider="zai")
+            send_text(chat_id, "GLM worker queued.")
+    elif cmd == "/cost":
+        lc = STATE.get("last_cost")
+        send_text(chat_id, ("Last turn: $%.4f (model %s, effort %s, %s)" % (lc["usd"], lc["model"], lc["effort"], _ago(lc["ts"])))
+                  if lc else "No completed turns recorded yet.")
+    elif cmd == "/usage":
+        send_text(chat_id, "Total turn cost since install: $%.4f" % STATE.get("cost_total", 0.0))
+    elif cmd == "/session":
+        sid = get_session(chat_id)
+        send_text(chat_id, "Attached: %s" % (sid[:12] + "…" if sid else "none, next message starts fresh"))
+    elif cmd == "/detach":
+        set_session(chat_id, None)
+        send_text(chat_id, "Detached. Next message starts a fresh conversation.")
+    elif cmd == "/health":
+        v = system_vitals()
+        send_text(chat_id, "Load %s on %s CPUs · RAM %s%% of %sG · disk %s%% of %sG"
+                  % (v.get("load"), v.get("cpus"), v.get("mem_pct"), v.get("mem_total_gb"), v.get("disk_pct"), v.get("disk_total_gb")))
+    elif cmd == "/uptime":
+        send_text(chat_id, "Bridge up %.1f hours." % ((time.time() - BOOT_TS) / 3600))
+    elif cmd == "/config":
+        send_text(chat_id, "model=%s\neffort=%s\nturn_limit=%s\nworkdir=%s\nglm=%s\ndashboard=%s"
+                  % (MODEL or "account default", EFFORT or "account default",
+                     "none" if RUN_TIMEOUT <= 0 else "%dm" % (RUN_TIMEOUT // 60), WORKDIR, GLM_BIN,
+                     "on :%d" % DASH_PORT if DASH_PORT else "off"))
     elif cmd == "/sessions":
         cur = get_session(chat_id)
         rows = []
@@ -700,6 +885,17 @@ def handle_message(msg):
     elif cmd in ("/new", "/restart"):
         set_session(chat_id, None)
         send_text(chat_id, "🆕 Fresh session. Next message starts a new conversation.")
+    elif cmd == "/go":
+        with proc_lock:
+            busy = current_proc is not None and current_proc.poll() is None
+        if not arg:
+            send_text(chat_id, "Usage: /go <message> — reaches the running turn at its next step.")
+        elif busy:
+            with open(inbox_path(chat_id), "a") as f:
+                f.write(arg + "\n\n")
+            send_text(chat_id, "📨 Delivered to the running turn. Claude sees it at its next step.")
+        else:
+            queue_prompt(chat_id, arg)
     elif cmd == "/stop":
         with proc_lock:
             p = current_proc
@@ -724,8 +920,9 @@ def handle_message(msg):
             busy = current_proc is not None and current_proc.poll() is None
         sid = get_session(chat_id)
         send_text(chat_id,
-                  "Bridge: 🟢 up\nRunning turn: %s\nQueued: %d\nSession: %s\nWorkdir: %s\nModel: session default (Fable 5)"
-                  % ("yes" if busy else "no", work_q.qsize(), sid or "(none — next msg starts one)", WORKDIR))
+                  "Bridge: 🟢 up\nRunning turn: %s\nQueued: %d\nSession: %s\nWorkdir: %s\nModel: %s · effort: %s"
+                  % ("yes" if busy else "no", work_q.qsize(), sid or "(none — next msg starts one)", WORKDIR,
+                     MODEL or "account default", EFFORT or "account default"))
     else:
         queue_prompt(chat_id, text)
 
@@ -903,6 +1100,13 @@ def start_dashboard():
     log("dashboard listening on :%d" % DASH_PORT)
 
 
+def register_commands():
+    for scope in ({"type": "default"}, {"type": "chat", "chat_id": OWNER}):
+        r = tg("setMyCommands", {"commands": MENU, "scope": scope}, timeout=20)
+        if not r.get("ok"):
+            log("setMyCommands failed: %s" % str(r)[:200])
+
+
 def main():
     lock_f = open(LOCK_PATH, "w")
     try:
@@ -915,6 +1119,7 @@ def main():
     threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=group_flusher, daemon=True).start()
     start_dashboard()
+    register_commands()
     log("bridge up, owner=%s offset=%s" % (OWNER, STATE.get("offset")))
 
     now = time.time()

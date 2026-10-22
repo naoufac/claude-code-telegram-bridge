@@ -43,18 +43,27 @@ To enable the dashboard, set `DASH_PORT` and `DASH_KEY` in `.env`, open the port
 
 ## Commands
 
+30 commands, registered in Telegram's "/" menu at startup (`native_commands.py` is the single source).
+
 | Command | What it does |
 |---|---|
-| `/new` | Fresh conversation (drops the session id) |
-| `/sessions` | List recent Claude Code sessions with first-message snippets |
-| `/attach <id>` | Continue any session here (8-char prefix is enough) |
-| `/last` | Attach the most recent session |
-| `/file <path>` | Send a file from the server to the chat |
+| `/go <message>` | Send a message into the running turn: Claude reads it after its next step (a hook injects it), or keeps going if it was about to stop |
 | `/stop` | Kill the running turn and drain the queue |
-| `/status` `/log` | Bridge state / log tail |
+| `/status` `/queue` `/clear` | Bridge state, waiting tasks, drop waiting tasks without stopping the current turn |
+| `/new` `/resume [note]` `/retry` | Fresh conversation, continue the current one, re-run your last prompt |
+| `/sessions` `/attach <id>` `/last` `/session` `/detach` | Browse and switch Claude Code sessions (8-char prefix is enough) |
+| `/model [name\|default]` `/models` | Show or switch the model for the next turns |
+| `/effort [low…max\|default]` | Show or set the reasoning effort |
+| `/timeout [minutes]` | Turn time limit, `0` = no limit |
+| `/cost` `/usage` | Cost of the last turn and running total (from Claude Code's result events) |
+| `/zai <prompt>` | Run a task on a separate GLM worker command (`GLM_BIN`, prompt on stdin) |
+| `/file <path>` `/workspace` | Send a file from the server, show the working directory |
+| `/health` `/uptime` `/config` `/ping` `/log` | Server load/RAM/disk, uptime, configuration, liveness, log tail |
 | `/reboot` | Restart the bridge process |
-| `/help` `/restart` | Aliases for `/start` and `/new` |
-| anything else | Runs a Claude Code turn — including `/slash` skills, which pass through |
+| `/help` `/start` | Command list |
+| anything else | Runs a Claude Code turn, including `/slash` skills and `/goal`, which pass through |
+
+Tests: `python3 -m unittest test_commands` (routing, persistence and queueing are real; only Telegram is faked).
 
 ## Security model
 
